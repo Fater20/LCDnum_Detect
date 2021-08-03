@@ -1,42 +1,24 @@
-#####################################################
-##         Depth Filter and Color locate           ##
-#####################################################
+########################################################################
+##                         LCD Number Detect                          ##
+########################################################################
 
+# LCD(Digital) Number Detect (use color to do image segmentation)
 #
+# Usual 7-segment digital number are red (other color is ok, but need to
+# be different with the background), so we can find the area of number by
+# color. We also need to do eroding and other image preprocessing steps 
+# to make every tube of digital numbers (and every digital number) connect 
+# with each otherbefore finding the biggest area of red(The area where 
+# numbers are most likely to appear.)
 
-# First import the library
-import pyrealsense2 as rs
-# Import Numpy for easy array manipulation
 import numpy as np
-# Import OpenCV for easy image rendering
 import cv2
+
+import pyrealsense2 as rs
 
 from imutils.perspective import four_point_transform
 from imutils import contours
 import imutils
-
-# Color information class
-#   type : shape type
-#   center: coordinates of the center
-#   depth: depth of the center
-#   vertices: 
-class color_info:
-    def __init__(self, center, depth, vertex):
-      self.center = center
-      self.depth = depth
-      self.vertex = vertex
-
-# Shape information class
-#   type : shape type
-#   center: coordinates of the center
-#   depth: depth of the center
-#   hull: the hull of the shape (For triangle and rectangle(square), hulls are the vertices; For circle, hull is the first point of contour)
-class shape_info:
-    def __init__(self, type, center, depth, hull):
-      self.type = type
-      self.center = center
-      self.depth = depth
-      self.hull = hull
 
 # Usual color HSV value
 color_dist = {
@@ -46,6 +28,7 @@ color_dist = {
     'green': {'lower': np.array([35, 43, 35]), 'upper': np.array([90, 255, 255])},
     }
 
+# Dictionary of 7-segment digital number 0-9
 DIGITS_LOOKUP = {
 	(1, 1, 1, 0, 1, 1, 1): 0,
 	(0, 0, 1, 0, 0, 1, 0): 1,
@@ -53,11 +36,12 @@ DIGITS_LOOKUP = {
 	(1, 0, 1, 1, 0, 1, 1): 3,
 	(0, 1, 1, 1, 0, 1, 0): 4,
 	(1, 1, 0, 1, 0, 1, 1): 5,
-	(1, 0, 1, 1, 1, 1, 1): 6,
+	(1, 1, 0, 1, 1, 1, 1): 6,
 	(1, 0, 1, 0, 0, 1, 0): 7,
 	(1, 1, 1, 1, 1, 1, 1): 8,
 	(1, 1, 1, 1, 0, 1, 1): 9
 }
+
 # Empty function
 def empty(a):
     pass
@@ -110,98 +94,13 @@ def depth_measure(depth_image, center, depth_scale):
     # Can not measure
     return 0
 
-# depth filter
+# Depth filter
 def depth_filter(color_image_src, depth_image_src, depth_min, depth_max):
     # Remove background - Set pixels further than clipping_distance to grey
     white_color = 255
     depth_image_3d = np.dstack((depth_image_src,depth_image_src,depth_image_src)) #depth image is 1 channel, color is 3 channels
     bg_removed = np.where((depth_image_3d > depth_max) | (depth_image_3d <= 0) | (depth_image_3d < depth_min), white_color, color_image_src)
     return bg_removed
-
-# Color detect and locate (locate all the color targets)
-# Also filter the region not in the region of interest
-def color_detect(color_image_src, depth_image_src, hsv_lower, hsv_upper, depth_min, depth_max, depth_scale):
-    # Copy the color image
-    imgResult = color_image_src.copy()
-
-    # Create the empty color list
-    color_list = list()
-
-    # Gaussian Blur
-    image_gus = cv2.GaussianBlur(color_image_src, (5, 5), 0)
-
-    # Remove background - Set pixels further than clipping_distance to grey
-    bg_removed = depth_filter(image_gus, depth_image_src, depth_min, depth_max)
-
-    # white_color = 255
-    # depth_image_3d = np.dstack((depth_image_src,depth_image_src,depth_image_src)) #depth image is 1 channel, color is 3 channels
-    # bg_removed = np.where((depth_image_3d > clipping_distance_max) | (depth_image_3d <= 0) | (depth_image_3d < clipping_distance_min), white_color, image_gus)
-
-    # Transfer rgb to hsv
-    image_hsv=cv2.cvtColor(bg_removed, cv2.COLOR_BGR2HSV)
-
-    # Generate mask ( The HSV value of red has two ranges)
-    #mask = cv2.inRange(image_hsv,lower,upper)
-    mask1 = cv2.inRange(image_hsv,color_dist['red1']['lower'],color_dist['red1']['upper'])
-    mask2 = cv2.inRange(image_hsv,color_dist['red2']['lower'],color_dist['red2']['upper'])
-    mask = mask1+mask2
-
-    # Set kernel as 3*3
-    kernel = np.ones((3,3),np.uint8)
-    # Erode image
-    erode_mask = cv2.erode(mask, kernel, iterations=3)
-    # Dilate image
-    opening_mask = cv2.dilate(erode_mask, kernel, iterations=5)
-
-    # Find all the contours in the erode_mask
-    contours, hierarchy = cv2.findContours(opening_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-    # Whether the contour exist
-    if np.size(contours)>0:
-        #area = cv2.contourArea(contours)
-        contours_area = np.zeros((len(contours),))
-        for i in range(len(contours)):
-            area = cv2.contourArea(contours[i])
-            
-            if area < 200:
-                cv2.drawContours(opening_mask,[contours[i]],0,0,-1)
-
-        # Try to reduce the effects of highlights and chromatic aberration(色差)
-        # After filling small areas, make valid areas stable and connected
-        kernel5 = np.ones((5,5),np.uint8)
-        opening_mask = cv2.dilate(opening_mask, kernel5, iterations=5)
-
-        contours_filter, hierarchy_filter = cv2.findContours(opening_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if np.size(contours_filter)>0:
-            c = max(contours_filter, key=cv2.contourArea)
-            rect = cv2.minAreaRect(c)
-            #rect = cv2.boundingRect(c)
-            box = cv2.boxPoints(rect)
-            cv2.drawContours(imgResult, [np.int0(box)], -1, (0, 255, 255), 2)
-            cv2.circle(imgResult, tuple(map(int,list(rect[0]))), 2, (255, 0, 0), 2)
-
-        contours_info = np.zeros((len(contours_filter),3), dtype = int)
-        # for c in contours_filter:
-        #     # Find the minimum enclosing rectangle
-        #     rect = cv2.minAreaRect(c)
-
-        #     # Get the rectangle's four corner points
-        #     box = cv2.boxPoints(rect)
-
-        #     # Draw the contour in red
-        #     cv2.drawContours(imgResult, [np.int0(box)], -1, (0, 255, 255), 2)
-            
-        #     # Draw the center of the rectangle in blue
-        #     cv2.circle(imgResult, tuple(map(int,list(rect[0]))), 2, (255, 0, 0), 2)
-        
-        #     center = list(map(int,list(rect[0])))
-        #     distance = depth_measure(depth_image_src, center, depth_scale)
-        #     cv2.putText(imgResult,str(int(distance*100))+"cm",tuple(center),cv2.FONT_HERSHEY_SIMPLEX,2,(0,0,255),2)
-        #     # Write color information(center coordinates & depth) into color_list
-        #     c = color_info([center[0],center[1]],int(distance*100),np.fix(box))
-        #     color_list.append(c)
-
-    return color_list, imgResult, opening_mask
 
 # Create a pipeline
 pipeline = rs.pipeline()
@@ -239,7 +138,7 @@ print("Depth Scale is: " , depth_scale)
 # We will be removing the background of objects more than
 # clipping_distance_in_meters meters away
 clipping_max_distance_in_meters = 1     #1 meter
-clipping_min_distance_in_meters = 0.2   #0.2 meter
+clipping_min_distance_in_meters = 0.1   #0.1  meter
 
 clipping_distance_max = clipping_max_distance_in_meters / depth_scale
 clipping_distance_min = clipping_min_distance_in_meters / depth_scale
@@ -252,34 +151,22 @@ align = rs.align(align_to)
 
 # Creat new window 'Trackbar'
 cv2.namedWindow('Trackbars')
-cv2.resizeWindow("Trackbars",640,480)
+cv2.resizeWindow("Trackbars",640,120)
 
 # Trackbar seetings
-cv2.createTrackbar("Hmin","Trackbars",  0,180,empty)
-cv2.createTrackbar("Hmax","Trackbars",180,180,empty)
-cv2.createTrackbar("Smin","Trackbars",  0,255,empty)
-cv2.createTrackbar("Smax","Trackbars",255,255,empty)
-cv2.createTrackbar("Vmin","Trackbars",  0,255,empty)
-cv2.createTrackbar("Vmax","Trackbars",255,255,empty)
-cv2.createTrackbar("Dmin","Trackbars", 20,800,empty)
+cv2.createTrackbar("Dmin","Trackbars", 10,200,empty)
 cv2.createTrackbar("Dmax","Trackbars",800,800,empty)
 
 # Streaming loop
 try:
     while True:
         # Get HSV range & depth range
-        h_min = cv2.getTrackbarPos("Hmin","Trackbars")
-        h_max = cv2.getTrackbarPos("Hmax","Trackbars")
-        s_min = cv2.getTrackbarPos("Smin","Trackbars")
-        s_max = cv2.getTrackbarPos("Smax","Trackbars")
-        v_min = cv2.getTrackbarPos("Vmin","Trackbars")
-        v_max = cv2.getTrackbarPos("Vmax","Trackbars")
         d_min = cv2.getTrackbarPos("Dmin","Trackbars")
         d_max = cv2.getTrackbarPos("Dmax","Trackbars")
 
-        # Get HSV lower and upper array
-        hsv_lower = np.array([h_min,s_min,v_min])
-        hsv_upper = np.array([h_max,s_max,v_max])
+        # # Get HSV lower and upper array
+        # hsv_lower = np.array([h_min,s_min,v_min])
+        # hsv_upper = np.array([h_max,s_max,v_max])
 
         # Depth distance transform to depth color based on depth_scale
         clipping_distance_min = d_min / 100 / depth_scale
@@ -304,27 +191,24 @@ try:
         depth_image = np.asanyarray(aligned_depth_frame.get_data())
         color_image = np.asanyarray(color_frame.get_data())
 
-        #center, distance, imgResult, bg_removed, image_hsv, opening_mask = maxColor_locate(color_image, depth_image, hsv_lower, hsv_upper, clipping_distance_min, clipping_distance_max, depth_scale)
-
+        # Create some images to display
         imgResult = color_image.copy()
         filter_mask = color_image.copy()
-        opening_warped = color_image.copy()
+
         warped = color_image.copy()
+        dilate_warped = color_image.copy()
+        closing_warped = color_image.copy()
         # Create the empty color list
         color_list = list()
 
-        # Gaussian Blur
-        image_gus = cv2.GaussianBlur(color_image, (5, 5), 0)
-
         # Remove background - Set pixels further than clipping_distance to grey
-        bg_removed = depth_filter(image_gus, depth_image, clipping_distance_min, clipping_distance_max)
-
-        # white_color = 255
-        # depth_image_3d = np.dstack((depth_image_src,depth_image_src,depth_image_src)) #depth image is 1 channel, color is 3 channels
-        # bg_removed = np.where((depth_image_3d > clipping_distance_max) | (depth_image_3d <= 0) | (depth_image_3d < clipping_distance_min), white_color, image_gus)
+        bg_removed = depth_filter(color_image, depth_image, clipping_distance_min, clipping_distance_max)
 
         # Transfer rgb to hsv
-        image_hsv=cv2.cvtColor(image_gus, cv2.COLOR_BGR2HSV)
+        image_hsv=cv2.cvtColor(bg_removed, cv2.COLOR_BGR2HSV)
+
+        # Gaussian Blur
+        image_gus = cv2.GaussianBlur(image_hsv, (5, 5), 0)
 
         # Generate mask ( The HSV value of red has two ranges)
         #mask = cv2.inRange(image_hsv,lower,upper)
@@ -334,13 +218,15 @@ try:
 
         # Set kernel as 3*3
         kernel = np.ones((3,3),np.uint8)
-        # Dilate image
-        dilate_mask = cv2.dilate(mask, kernel, iterations=4)
+
         # Erode image
-        closing_mask = cv2.erode(dilate_mask, kernel, iterations=3)
+        erode_mask = cv2.erode(mask, kernel, iterations=1)
+
+        # Dilate image
+        opening_mask = cv2.dilate(erode_mask, kernel, iterations=1)
 
         # Find all the contours in the erode_mask
-        contour, hierarchy = cv2.findContours(closing_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contour, hierarchy = cv2.findContours(opening_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         digitCnts = []
         # Whether the contour exist
@@ -350,15 +236,17 @@ try:
             for i in range(len(contour)):
                 area = cv2.contourArea(contour[i])
                 
-                if area < 200:
-                    cv2.drawContours(closing_mask,[contour[i]],0,0,-1)
+                if area < 50:
+                    cv2.drawContours(opening_mask,[contour[i]],0,0,-1)
 
             # Try to reduce the effects of highlights and chromatic aberration(色差)
             # After filling small areas, make valid areas stable and connected
             kernel5 = np.ones((5,5),np.uint8)
-            filter_mask = cv2.dilate(closing_mask, kernel5, iterations=5)
+            filter_mask = cv2.dilate(opening_mask, kernel5, iterations=20)
+            filter_mask = cv2.erode(filter_mask, kernel5, iterations=10)
 
             contours_filter, hierarchy_filter = cv2.findContours(filter_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
             if np.size(contours_filter)>0:
                 c = max(contours_filter, key=cv2.contourArea)
                 rect = cv2.minAreaRect(c)
@@ -367,18 +255,16 @@ try:
                 cv2.drawContours(imgResult, [np.int0(box)], -1, (0, 255, 255), 2)
                 cv2.circle(imgResult, tuple(map(int,list(rect[0]))), 2, (255, 0, 0), 2)
 
-                warped = four_point_transform(mask, np.int0(box).reshape(4, 2))
+                warped = four_point_transform(opening_mask, np.int0(box).reshape(4, 2))
                 imgResult = four_point_transform(color_image, np.int0(box).reshape(4, 2))
-                # Set kernel as 3*3
-                kernel = np.ones((3,3),np.uint8)
+
+                # # Dilate image
+                dilate_warped = cv2.dilate(warped, kernel, iterations=1)
 
                 # Erode image
-                erode_warped = cv2.erode(warped, kernel, iterations=3)
+                closing_warped = cv2.erode(dilate_warped, kernel, iterations=2)
 
-                # Dilate image
-                opening_warped = cv2.dilate(erode_warped, kernel, iterations=1)
-
-                cnts = cv2.findContours(opening_warped.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                cnts = cv2.findContours(closing_warped.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 cnts = imutils.grab_contours(cnts)
 
                 # 循环遍历所有的候选区域
@@ -387,9 +273,9 @@ try:
                     (x, y, w, h) = cv2.boundingRect(c)
                     print(w,h)
                     # 如果当前的这个轮廓区域足够大，它一定是一个数字区域
-                    # if w >= 15 and (h >= 30 and h <= 40):
-                    #     digitCnts.append(c)
-                    if w >= 15 and (h >= 30 and h <= 60):
+                    if w >= 15 and (h >= 20 and h <= 80):
+                        digitCnts.append(c)
+                    elif (w >=5 and w < 15) and (h >= 20 and h <= 80):
                         digitCnts.append(c)
                 
                 if digitCnts:
@@ -397,24 +283,17 @@ try:
                     digitCnts = contours.sort_contours(digitCnts, method="left-to-right")[0]
                     digits = []
 
-                    # boundingBoxes = [cv2.boundingRect(c) for c in digitCnts]
-                    # print(digitCnts)
-                    # print(boundingBoxes)
-                    # (cnts, boundingBoxes) = zip(*sorted(zip(digitCnts, boundingBoxes),
-                    #                                 key=lambda b: b[1][0], reverse=False))
-                    # digitCnts = cnts
-                    # digits = []
-
                     # 循环处理每一个数字
                     i = 0
                     for c in digitCnts:
                         # 获取ROI区域
                         (x, y, w, h) = cv2.boundingRect(c)
-                        roi = opening_warped[y:y + h, x:x + w]
+                        roi = closing_warped[y:y + h, x:x + w]
                         # 分别计算每一段的宽度和高度
                         (roiH, roiW) = roi.shape
-                        (dW, dH) = (int(roiW * 0.3), int(roiH * 0.15))
-                        dHC = int(roiH * 0.05)
+                        (dW, dH) = (int(roiW * 0.25), int(roiH * 0.15))
+                        tilt_dW = int(0.05*dW)
+                        dHC = int(roiH * 0.1)
 
                         # 定义一个7段数码管的集合
                         segments = [
@@ -428,16 +307,23 @@ try:
                         ]
                         on = [0] * len(segments)
 
-                        # 循环遍历数码管中的每一段
-                        for (i, ((xA, yA), (xB, yB))) in enumerate(segments):  # 检测分割后的ROI区域，并统计分割图中的阈值像素点
-                            segROI = roi[yA:yB, xA:xB]
-                            total = cv2.countNonZero(segROI)
-                            area = (xB - xA) * (yB - yA)
+                        if w>=15:
+                            # 循环遍历数码管中的每一段
+                            for (i, ((xA, yA), (xB, yB))) in enumerate(segments):  # 检测分割后的ROI区域，并统计分割图中的阈值像素点
+                                segROI = roi[yA:yB, xA:xB]
+                                total = cv2.countNonZero(segROI)
+                                area = (xB - xA) * (yB - yA)
 
-                            # 如果非零区域的个数大于整个区域的一半，则认为该段是亮的
-                            #print(total,area)
-                            if total> (0.5 * float(area)) :
-                                on[i]= 1
+                                # 如果非零区域的个数大于整个区域的一半，则认为该段是亮的
+                                if total> (0.5 * float(area)) :
+                                    on[i]= 1
+                        else:
+                                total = cv2.countNonZero(roi[0:h,0:w])
+                                area = w * h
+
+                                if total> (0.5 * float(area)) :
+                                    on[2] = 1
+                                    on[5] = 1    
 
                         print(on)
                         # 进行数字查询并显示结果
@@ -458,7 +344,7 @@ try:
         #   depth on right
         depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
 
-        imgStack = stackImages(0.7,([color_image, imgResult],[mask, opening_warped]))
+        imgStack = stackImages(0.4,([color_image, filter_mask, imgResult],[mask, erode_mask, opening_mask],[warped,dilate_warped,closing_warped]))
 
         cv2.namedWindow('Depth Filter and Color locate', cv2.WINDOW_AUTOSIZE)
         cv2.imshow('Depth Filter and Color locate', imgStack)
