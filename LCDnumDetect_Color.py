@@ -229,6 +229,9 @@ try:
         contour, hierarchy = cv2.findContours(opening_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         digitCnts = []
+
+        # Try to reduce the effects of highlights and chromatic aberration(色差)
+        # After filling small areas, make valid areas stable and connected
         # Whether the contour exist
         if np.size(contour)>0:
             #area = cv2.contourArea(contours)
@@ -236,29 +239,34 @@ try:
             for i in range(len(contour)):
                 area = cv2.contourArea(contour[i])
                 
+                # Fill small areas
                 if area < 50:
                     cv2.drawContours(opening_mask,[contour[i]],0,0,-1)
 
-            # Try to reduce the effects of highlights and chromatic aberration(色差)
-            # After filling small areas, make valid areas stable and connected
+            # Make every number connects with each other and become a complete area
             kernel5 = np.ones((5,5),np.uint8)
             filter_mask = cv2.dilate(opening_mask, kernel5, iterations=20)
             filter_mask = cv2.erode(filter_mask, kernel5, iterations=10)
 
             contours_filter, hierarchy_filter = cv2.findContours(filter_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             
+            # Find the biggest area which is the digital area
             if np.size(contours_filter)>0:
                 c = max(contours_filter, key=cv2.contourArea)
+
                 rect = cv2.minAreaRect(c)
                 #rect = cv2.boundingRect(c)
                 box = cv2.boxPoints(rect)
-                cv2.drawContours(imgResult, [np.int0(box)], -1, (0, 255, 255), 2)
-                cv2.circle(imgResult, tuple(map(int,list(rect[0]))), 2, (255, 0, 0), 2)
 
+                # cv2.drawContours(imgResult, [np.int0(box)], -1, (0, 255, 255), 2)
+                # cv2.circle(imgResult, tuple(map(int,list(rect[0]))), 2, (255, 0, 0), 2)
+
+                # Extract digital area through four-point perspective transformation
                 warped = four_point_transform(opening_mask, np.int0(box).reshape(4, 2))
                 imgResult = four_point_transform(color_image, np.int0(box).reshape(4, 2))
 
-                # # Dilate image
+                # Make every digital number average and clear
+                # Dilate image
                 dilate_warped = cv2.dilate(warped, kernel, iterations=1)
 
                 # Erode image
@@ -267,35 +275,32 @@ try:
                 cnts = cv2.findContours(closing_warped.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 cnts = imutils.grab_contours(cnts)
 
-                # 循环遍历所有的候选区域
                 for c in cnts:
-                    # 计算轮廓的边界框
                     (x, y, w, h) = cv2.boundingRect(c)
                     print(w,h)
-                    # 如果当前的这个轮廓区域足够大，它一定是一个数字区域
+                    # Filter out the appropriate size area
                     if w >= 15 and (h >= 20 and h <= 80):
                         digitCnts.append(c)
                     elif (w >=5 and w < 15) and (h >= 20 and h <= 80):
                         digitCnts.append(c)
                 
                 if digitCnts:
-                    # 从左到右对这些轮廓进行排序
+                    # Sort these contours from left to right
                     digitCnts = contours.sort_contours(digitCnts, method="left-to-right")[0]
                     digits = []
 
-                    # 循环处理每一个数字
                     i = 0
                     for c in digitCnts:
-                        # 获取ROI区域
+                        # Get the ROI area
                         (x, y, w, h) = cv2.boundingRect(c)
                         roi = closing_warped[y:y + h, x:x + w]
-                        # 分别计算每一段的宽度和高度
                         (roiH, roiW) = roi.shape
+                        
                         (dW, dH) = (int(roiW * 0.25), int(roiH * 0.15))
-                        tilt_dW = int(0.05*dW)
+                        # tilt_dW = int(0.05*dW) # Tilt compensation
                         dHC = int(roiH * 0.1)
 
-                        # 定义一个7段数码管的集合
+                        # Define a collection of 7-segment digital tubes
                         segments = [
                             ((0, 0), (w, dH)),	                         # 上
                             ((0, 0), (dW, h // 2)),                      # 左上
@@ -307,16 +312,20 @@ try:
                         ]
                         on = [0] * len(segments)
 
+                        # Consider the situation of '1' and others
+                        # '0' '2'-'9'
                         if w>=15:
-                            # 循环遍历数码管中的每一段
+                            # Cycle through each segment in the digital number
                             for (i, ((xA, yA), (xB, yB))) in enumerate(segments):  # 检测分割后的ROI区域，并统计分割图中的阈值像素点
                                 segROI = roi[yA:yB, xA:xB]
                                 total = cv2.countNonZero(segROI)
                                 area = (xB - xA) * (yB - yA)
 
-                                # 如果非零区域的个数大于整个区域的一半，则认为该段是亮的
+                                # When the number of non-zero areas is greater than half of the entire area,
+                                # the segment is on
                                 if total> (0.5 * float(area)) :
                                     on[i]= 1
+                        # '1'
                         else:
                                 total = cv2.countNonZero(roi[0:h,0:w])
                                 area = w * h
@@ -326,22 +335,19 @@ try:
                                     on[5] = 1    
 
                         print(on)
-                        # 进行数字查询并显示结果
+                        
+                        # Query and display the detecting result
                         try:
                             digit = DIGITS_LOOKUP[tuple(on)]
                             digits.append(digit)
                             cv2.rectangle(imgResult, (x, y), (x + w, y + h), (0, 255, 0), 1)
                             cv2.putText(imgResult, str(digit), (x + 10, y + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 0), 2)
-                            # 显示最终的输出结果
                         except KeyError:
                             print("no detect")
+                    # Display the detecting result
                     print(digits)
                     print("######")
 
-
-        # Render images:
-        #   depth align to color on left
-        #   depth on right
         depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
 
         imgStack = stackImages(0.4,([color_image, filter_mask, imgResult],[mask, erode_mask, opening_mask],[warped,dilate_warped,closing_warped]))
