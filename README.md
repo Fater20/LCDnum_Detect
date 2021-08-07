@@ -1,7 +1,10 @@
 # LCDnum_Detect
 This project is about detecting LCD numbers(7-segment digital numbers).
+
 Image Segmentation: Finding the contour of number area or Finding the color area of number
+
 Detecting Method: Threading Method or KNN
+
 
 Updating ... ...
 
@@ -17,8 +20,11 @@ Updating ... ...
 
 ## Introduction
 "./LCDnumDetect_Color.py"
+
 "./LCDnumDetect_Contour.py"
+
 "./knn/LCDnumDetect_Color1.py"
+
 "./knn/LCDnumDetect_Color2.py"
 
 ## Attentions
