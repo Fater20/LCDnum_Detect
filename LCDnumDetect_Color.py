@@ -2,7 +2,7 @@
 ##                         LCD Number Detect                          ##
 ########################################################################
 
-# LCD(Digital) Number Detect (use color to do image segmentation)
+# LCD(7-segment digital) Number Detect (use color to do image segmentation)
 #
 # Usual 7-segment digital number are red (other color is ok, but need to
 # be different with the background), so we can find the area of number by
