@@ -10,7 +10,8 @@
 # to make every tube of digital numbers (and every digital number) connect 
 # with each otherbefore finding the biggest area of red(The area where 
 # numbers are most likely to appear.)
-
+#
+# Use Threading Method
 import numpy as np
 import cv2
 
@@ -202,10 +203,11 @@ try:
         color_list = list()
 
         # Remove background - Set pixels further than clipping_distance to grey
-        bg_removed = depth_filter(color_image, depth_image, clipping_distance_min, clipping_distance_max)
+        # bg_removed = depth_filter(color_image, depth_image, clipping_distance_min, clipping_distance_max)
 
         # Transfer rgb to hsv
-        image_hsv=cv2.cvtColor(bg_removed, cv2.COLOR_BGR2HSV)
+        # image_hsv=cv2.cvtColor(bg_removed, cv2.COLOR_BGR2HSV)
+        image_hsv=cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV)
 
         # Gaussian Blur
         image_gus = cv2.GaussianBlur(image_hsv, (5, 5), 0)
@@ -302,13 +304,13 @@ try:
 
                         # Define a collection of 7-segment digital tubes
                         segments = [
-                            ((0, 0), (w, dH)),	                         # 上
-                            ((0, 0), (dW, h // 2)),                      # 左上
-                            ((w - dW, 0), (w, h // 2)),	                 # 右上
-                            ((0, (h // 2) - dHC) , (w, (h // 2) + dHC)), # 中间
-                            ((0, h // 2), (dW, h)),	                     # 左下
-                            ((w - dW, h // 2), (w, h)),	                 # 右下
-                            ((0, h - dH), (w, h))	                     # 下
+                            ((0, 0), (w, dH)),	                         # upper
+                            ((0, 0), (dW, h // 2)),                      # Upper left
+                            ((w - dW, 0), (w, h // 2)),	                 # Upper right
+                            ((0, (h // 2) - dHC) , (w, (h // 2) + dHC)), # middle
+                            ((0, h // 2), (dW, h)),	                     # Lower left
+                            ((w - dW, h // 2), (w, h)),	                 # Lower right
+                            ((0, h - dH), (w, h))	                     # lower
                         ]
                         on = [0] * len(segments)
 
@@ -316,7 +318,7 @@ try:
                         # '0' '2'-'9'
                         if w>=15:
                             # Cycle through each segment in the digital number
-                            for (i, ((xA, yA), (xB, yB))) in enumerate(segments):  # 检测分割后的ROI区域，并统计分割图中的阈值像素点
+                            for (i, ((xA, yA), (xB, yB))) in enumerate(segments):  # Detect the segmented ROI area and count the threshold pixels in the segmentation image
                                 segROI = roi[yA:yB, xA:xB]
                                 total = cv2.countNonZero(segROI)
                                 area = (xB - xA) * (yB - yA)
