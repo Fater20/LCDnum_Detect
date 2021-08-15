@@ -119,7 +119,7 @@ int main(void)
 	else
 		i=i+1;
     TM1637_Display_INC();
-    TM1637_SetBrightness( 5 );					//设置亮度等级 0---7
+    TM1637_SetBrightness( 0 );					//设置亮度等级 0---7
 
   }
   /* USER CODE END 3 */
