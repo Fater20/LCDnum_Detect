@@ -1,8 +1,8 @@
 ########################################################################
-##                         LCD Number Detect                          ##
+##                         LCD Number Detect 1                        ##
 ########################################################################
 
-# LCD(Digital) Number Detect (use color to do image segmentation)
+# LCD(7-segment digital) Number Detect (use color to do image segmentation)
 #
 # Usual 7-segment digital number are red (other color is ok, but need to
 # be different with the background), so we can find the area of number by
@@ -10,6 +10,9 @@
 # to make every tube of digital numbers (and every digital number) connect 
 # with each otherbefore finding the biggest area of red(The area where 
 # numbers are most likely to appear.)
+#
+# Use KNN from module "sklearn"
+
 
 import numpy as np
 import cv2
@@ -21,6 +24,9 @@ from imutils import contours
 import imutils
 
 from sklearn.neighbors import KNeighborsClassifier as KNN
+
+from sklearn.model_selection  import cross_val_score
+import matplotlib.pyplot as plt
 
 # Usual color HSV value
 color_dist = {
@@ -105,38 +111,39 @@ def depth_filter(color_image_src, depth_image_src, depth_min, depth_max):
     return bg_removed
 
 
-#数据初始化
-s = './num'  #特征图像所在位置
-num = 2000   #样本总数  0-9各200个
-row = 130  #特征图像的行数
-col = 72  #特征图像的列数
-a = np.zeros((num,row,col))  #存储所有样本的数值
+# Initial train data
+s = './train_class'             # The path of feature images
+num = 1000                      # Total number of samples (100 each for 0-9) 
+row = 130                       # Rows of feature image
+col = 72                        # Columns of feature image
+a = np.zeros((num,row,col))     # Matrix storing all samples
 
-#存储图像
+# Store image data
 n = 0
 for i in range(0,10):
-    for j in range(0,200):
+    for j in range(0,int(num/10)):
         a[n,:,:] = cv2.imread(s + '/' + str(i) + '_class/' + str(j).zfill(5) + '.jpg',0)
         n = n+1
 
-#提取样本图像特征
-feature = np.zeros((num,row,col))  #用来存储所有样本的特征值
+# Get the feature of sample
+feature = np.zeros((num,row,col))
 for ni in range(0,num):
     for nr in range(0,row):
         for nc in range(0,col):
             if a[ni,nr,nc] == 255:
                 feature[ni,nr,nc]=1
 
-f = feature   #简化变量名称
-#将feature处理为单行形式
+# Process the feature as a single line
 train = feature[:,:].reshape(-1,row*col).astype(np.float32)
-#贴标签
+
+# Get labels
 trainLabels = [int(i/(num/10)) for i in range(0,num)]
 trainLabels = np.asarray(trainLabels)
 
-#构建kNN分类器
-neigh =KNN(n_neighbors = 5, algorithm = 'auto')
-#拟合模型, trainingMat为训练矩阵,hwLabels为对应的标签
+# Build KNN classifier
+neigh =KNN(n_neighbors = 3, algorithm = 'auto')
+
+# Fit the model
 neigh.fit(train, trainLabels)
 
 # Create a pipeline
@@ -240,10 +247,11 @@ try:
         color_list = list()
 
         # Remove background - Set pixels further than clipping_distance to grey
-        bg_removed = depth_filter(color_image, depth_image, clipping_distance_min, clipping_distance_max)
+        #bg_removed = depth_filter(color_image, depth_image, clipping_distance_min, clipping_distance_max)
 
         # Transfer rgb to hsv
-        image_hsv=cv2.cvtColor(bg_removed, cv2.COLOR_BGR2HSV)
+        #image_hsv=cv2.cvtColor(bg_removed, cv2.COLOR_BGR2HSV)
+        image_hsv=cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV)
 
         # Gaussian Blur
         image_gus = cv2.GaussianBlur(image_hsv, (5, 5), 0)
@@ -336,11 +344,6 @@ try:
                         # Get the ROI area
                         (x, y, w, h) = cv2.boundingRect(c)
                         roi = closing_warped[y:y + h, x:x + w]
-                        (roiH, roiW) = roi.shape
-                        
-                        (dW, dH) = (int(roiW * 0.25), int(roiH * 0.15))
-                        # tilt_dW = int(0.05*dW) # Tilt compensation
-                        dHC = int(roiH * 0.1)
 
                         if w>=15:
                             roi_re = cv2.resize(roi,(72,130))
@@ -355,7 +358,7 @@ try:
                         roi_re = cv2.dilate(roi_re, kernel, iterations=3)
 
                         o = roi_re
-                        of = np.zeros((row,col))  #存储待识别图像特征值
+                        of = np.zeros((row,col))  # Store the feature of the image to be recognized值
                         for nr in range(0,row):
                             for nc in range(0,col):
                                 if o[nr,nc] == 255:
@@ -363,12 +366,12 @@ try:
 
                         test = of.reshape(-1,row*col).astype(np.float32)
 
-                        #获得预测结果
+                        # Get recognition result
                         classifierResult = neigh.predict(test)
                         distances, indices = neigh.kneighbors(test)
 
                         
-                        print("距离当前点最近的5个邻居为:",trainLabels[indices])
+                        print("距离当前点最近的3个邻居为:",trainLabels[indices])
                         print("距离为:",distances)
                         print("分类返回结果为%d" % (classifierResult))
                         
@@ -376,7 +379,6 @@ try:
                         # Query and display the detecting result
                         try:
                             digits.append(int(classifierResult))
-                            #cv2.imwrite('./train_class/'+str(int(classifierResult))+ '/' +str(n).zfill(5)+'.jpg',roi_re)
                             n = n + 1
                             cv2.rectangle(imgResult, (x, y), (x + w, y + h), (0, 255, 0), 1)
                             cv2.putText(imgResult, str(int(classifierResult)), (x + 10, y + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 0), 2)
@@ -388,7 +390,7 @@ try:
 
         depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
 
-        imgStack = stackImages(0.4,([color_image, filter_mask, imgResult],[mask, erode_mask, opening_mask],[warped,dilate_warped,closing_warped]))
+        imgStack = stackImages(0.5,([color_image, filter_mask, imgResult],[mask, erode_mask, opening_mask],[warped,dilate_warped,closing_warped]))
 
         cv2.namedWindow('Depth Filter and Color locate', cv2.WINDOW_AUTOSIZE)
         cv2.imshow('Depth Filter and Color locate', imgStack)
