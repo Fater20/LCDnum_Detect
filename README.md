@@ -15,7 +15,7 @@ Updating ... ...
 * module "sklearn" (using KNN to detect may need this)
 
 ## Result Preview
-<img src="https://github.com/Fater20/LCDnum_Detect/blob/main/image/KNN/result2.png" width="200" height="100" />
+<img src="https://github.com/Fater20/LCDnum_Detect/blob/main/image/KNN/result2.png" width="200" height="150" />
 
 <img src="https://github.com/Fater20/LCDnum_Detect/blob/main/image/KNN/result1.png" width="400" height="300" />
 
