@@ -5,7 +5,6 @@ Image Segmentation: Finding the contour of number area or Finding the color area
 
 Detecting Method: Threading Method or KNN
 
-Updating ... ...
 
 ## Requirements
 * python3
